@@ -1,2 +1,0 @@
-# Shelah_sabott
-BOT
