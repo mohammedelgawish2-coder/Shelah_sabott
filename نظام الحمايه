@@ -1,0 +1,200 @@
+const { Telegraf } = require('telegraf');
+const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// قاعدة بيانات بسيطة
+let warnings = {};        // الإنذارات
+let mediaExceptions = {}; // استثناء الوسائط
+let activatedGroups = {}; // القروبات المفعّلة (لا يشتغل البوت إلا بموافقتك)
+
+// دالة مساعدة
+function isAdmin(ctx) {
+    const member = ctx.message?.from;
+    return member.id === ctx.chat?.owner_id || member.id === ctx.chat?.admin_id;
+}
+
+function isOwner(ctx) {
+    return ctx.message?.from.id === Number(process.env.OWNER_ID);
+}
+
+// ===============================
+// نظام التفعيل — البوت ما يشتغل إلا بموافقة المالك
+// ===============================
+
+bot.use((ctx, next) => {
+    if (!ctx.chat || ctx.chat.type === "private") return next();
+
+    if (!activatedGroups[ctx.chat.id]) {
+        if (ctx.message?.text === "تفعيل") return next();
+        return ctx.reply("🚫 القروب غير مفعّل — اكتب تفعيل");
+    }
+
+    return next();
+});
+
+bot.command("تفعيل", async (ctx) => {
+    if (!isOwner(ctx)) return ctx.reply("هذا الأمر خاص بالمالك فقط");
+
+    activatedGroups[ctx.chat.id] = true;
+
+    ctx.reply("✔ تم تفعيل القروب — الآن البوت شغال هنا");
+});
+
+// ===============================
+// 1) أوامر الحماية الأساسية
+// ===============================
+
+// كتم
+bot.command('كتم', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+    await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
+        can_send_messages: false
+    });
+
+    ctx.reply("تم كتم العضو");
+});
+
+// رفع كتم
+bot.command('رفعكتم', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+    await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
+        can_send_messages: true
+    });
+
+    ctx.reply("تم رفع الكتم");
+});
+
+// طرد
+bot.command('طرد', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+    await ctx.telegram.kickChatMember(ctx.chat.id, userId);
+
+    ctx.reply("تم طرد العضو");
+});
+
+// حظر
+bot.command('حظر', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+    await ctx.telegram.banChatMember(ctx.chat.id, userId);
+
+    ctx.reply("تم حظر العضو");
+});
+
+// رفع حظر
+bot.command('رفعحظر', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+    await ctx.telegram.unbanChatMember(ctx.chat.id, userId);
+
+    ctx.reply("تم رفع الحظر");
+});
+
+// تثبيت
+bot.command('تثبيت', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على الرسالة أول");
+
+    await ctx.telegram.pinChatMessage(ctx.chat.id, ctx.message.reply_to_message.message_id);
+    ctx.reply("تم تثبيت الرسالة");
+});
+
+// الغاء تثبيت
+bot.command('الغاءتثبيت', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+
+    await ctx.telegram.unpinChatMessage(ctx.chat.id);
+    ctx.reply("تم إلغاء التثبيت");
+});
+
+// مسح
+bot.command('مسح', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على الرسالة أول");
+
+    await ctx.telegram.deleteMessage(ctx.chat.id, ctx.message.reply_to_message.message_id);
+    ctx.reply("تم المسح");
+});
+
+// ===============================
+// 2) الإنذارات
+// ===============================
+
+// انذار
+bot.command('انذار', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+
+    warnings[userId] = (warnings[userId] || 0) + 1;
+
+    ctx.reply(`تم إعطاء إنذار — عدد الإنذارات: ${warnings[userId]}`);
+
+    if (warnings[userId] >= 3) {
+        await ctx.telegram.kickChatMember(ctx.chat.id, userId);
+        ctx.reply("تم طرد العضو بسبب كثرة الإنذارات");
+    }
+});
+
+// رفع إنذار
+bot.command('رفعانذار', async (ctx) => {
+    if (!isOwner(ctx) && !isAdmin(ctx)) return;
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على العضو أول");
+
+    const userId = ctx.message.reply_to_message.from.id;
+
+    warnings[userId] = Math.max((warnings[userId] || 0) - 1, 0);
+
+    ctx.reply(`تم رفع إنذار — عدد الإنذارات الآن: ${warnings[userId]}`);
+});
+
+// ===============================
+// 3) استثناء الوسائط
+// ===============================
+
+// استثني
+bot.command('استثني', async (ctx) => {
+    if (!isOwner(ctx)) return ctx.reply("هذا الأمر خاص بالمالك فقط");
+
+    if (!ctx.message.reply_to_message) return ctx.reply("رد على الوسائط أول");
+
+    const fileId = ctx.message.reply_to_message.document?.file_id ||
+                   ctx.message.reply_to_message.photo?.slice(-1)[0]?.file_id ||
+                   ctx.message.reply_to_message.video?.file_id ||
+                   ctx.message.reply_to_message.sticker?.file_id;
+
+    if (!fileId) return ctx.reply("هذه الرسالة ما فيها وسائط");
+
+    mediaExceptions[fileId] = true;
+
+    ctx.reply("تم استثناء الوسائط من الحذف التلقائي");
+});
+
+// ===============================
+// 4) حذف الوسائط التلقائي كل 30 دقيقة
+// ===============================
+
+setInterval(async () => {
+    try {
+        console.log("تنظيف الوسائط شغال…");
+        // هنا تكتب نظامك الحقيقي حسب قاعدة بياناتك
+    } catch (e) {
+        console.log("خطأ في التنظيف:", e);
+    }
+}, 30 * 60 * 1000);
+
+// تشغيل البوت
+bot.launch();
